@@ -1,19 +1,19 @@
-#include"Distance.h"
-#include<iostream>
-#include<array>
+#include "lib/Distance.h"
+#include <iostream>
+#include <array>
 
 using namespace math;
 
 int main() {
     std::cout << ReleazeInfo::TargetName() << std::endl;
-	std::array<double, 8> circles;
-	std::array<double, 4> distances;
-	double r, x, y;
-	std::cin >> r >> x >> y;
+	DPackedVector512 circles;
+	DPackedScalar256 distances;
+	DCircle c;
+	std::cin >> c.x >> c.y >> c.r;
 	for (auto& i : circles) {
 		std::cin >> i;
 	}
-	distances = avx::DistFromPointToCirclePack(r, circles, x, y);
+	distances = DistFromPointToCirclePack(c, circles);
 	for (double d : distances) {
 		std::cout << d << " ";
 	}
