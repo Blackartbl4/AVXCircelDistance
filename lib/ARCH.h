@@ -1,3 +1,8 @@
+#pragma once
+
+#include <cstdint>
+#include <cstddef>
+
 namespace arch
 {
     class ARCH_INFO {

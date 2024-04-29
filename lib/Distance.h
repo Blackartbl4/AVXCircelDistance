@@ -39,12 +39,14 @@ namespace math
 				x = other.x;
 				y = other.y;
 				r = other.r;
+				return *this;
 			}
 			constexpr circle &operator=(circle &&other)
 			{
 				x = std::move(x);
 				y = std::move(y);
 				r = std::move(r);
+				return *this;
 			}
 		};
 	} // namespace structures
