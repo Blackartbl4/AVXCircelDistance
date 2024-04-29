@@ -1,41 +1,53 @@
 #pragma once
 
-#include <array>
-#include <iostream>
-#include <cmath>
-#include <immintrin.h>
-#include <emmintrin.h>
 #include "ARCH.h"
+#include <array>
+#include <cmath>
+#include <emmintrin.h>
+#include <immintrin.h>
+#include <iostream>
 
 namespace math
 {
+
 	namespace structures
 	{
-		template <typename T, size_t size, size_t _align = alignof(T) * 8ULL>
-			requires(_align >= alignof(T) / 8 && _align / 8 <= size * sizeof(T))
-		struct alignas(_align / 8) align_array : public std::array<T, size> {};
+		template <typename T, size_t size, size_t _align = alignof(T) * 8ULL,
+				  bool __REQ =
+					  (_align >= alignof(T) / 8 && _align / 8 <= size * sizeof(T))>
+			requires __REQ
+		struct alignas(_align / 8) align_array
+			: public std::array<T, size>
+		{
+		};
 
 		template <typename T>
-        struct circle {
-        public:
-            T x{0}, y{0}, r{0};
+		struct circle
+		{
+		public:
+			T x{0}, y{0}, r{0};
 
-            constexpr circle() = default;
-            constexpr circle(T&& x, T&& y, T&& r) : x(std::forward(x)), y(std::forward(y)), r(std::forward(r)) {}
+			constexpr circle() = default;
+			constexpr circle(T &&x, T &&y, T &&r) : x(x), y(y), r(r) {}
 
-            constexpr circle(const circle& other) : x(other.x), y(other.y), r(other.r) {}
-            constexpr circle(circle&& other) : x(std::move(x)), y(std::move(y)), r(std::move(r)) {}
+			constexpr circle(const circle &other) : x(other.x), y(other.y), r(other.r) {}
+			constexpr circle(circle &&other)
+				: x(std::move(x)), y(std::move(y)), r(std::move(r)) {}
 
-            constexpr circle& operator=(const circle& other) {
-                x = other.x; y = other.y; r = other.r;
-            }
-            constexpr circle& operator=(circle&& other) {
-                x = std::move(x);
-                y = std::move(y);
-                r = std::move(r);
-            }
-        };
-	}
+			constexpr circle &operator=(const circle &other)
+			{
+				x = other.x;
+				y = other.y;
+				r = other.r;
+			}
+			constexpr circle &operator=(circle &&other)
+			{
+				x = std::move(x);
+				y = std::move(y);
+				r = std::move(r);
+			}
+		};
+	} // namespace structures
 
 	using DPackedVector512 = structures::align_array<double, 8, 512>;
 	using DPackedVector256 = structures::align_array<double, 4, 256>;
@@ -60,22 +72,26 @@ namespace math
 
 	namespace cpp
 	{
-		DPackedScalar256 DistFromPointToCirclePack(DCircle c, DPackedVector512 circles)
+		DPackedScalar256 DistFromPointToCirclePack(DCircle c,
+												   DPackedVector512 circles)
 		{
 			DPackedScalar256 distances;
 			for (int i = 0; i < 4; i++)
 			{
 				int ci = 2 * i;
-				distances[i] = sqrt((circles[ci] - c.x) * (circles[ci] - c.x) + (circles[ci + 1] - c.y) * (circles[ci + 1] - c.y)) - c.r;
+				distances[i] = sqrt((circles[ci] - c.x) * (circles[ci] - c.x) +
+									(circles[ci + 1] - c.y) * (circles[ci + 1] - c.y)) -
+							   c.r;
 			}
 			return distances;
 		}
-	}
+	} // namespace cpp
 	namespace avx512
 	{
 		template <bool __MAVX = arch::ARCH_INFO::AVX512F>
 			requires __MAVX
-		DPackedScalar256 DistFromPointToCirclePack(DCircle c, DPackedVector512 circles)
+		DPackedScalar256
+		DistFromPointToCirclePack(DCircle c, DPackedVector512 circles)
 		{
 			__m512d quadropoint = _mm512_set4_pd(c.x, c.y, c.x, c.y);
 			__m512d centralpoints = _mm512_load_pd(&circles[0]);
@@ -90,10 +106,11 @@ namespace math
 			_mm512_storeu_pd(&circles[0], centralpoints);
 			return {circles[1], circles[3], circles[5], circles[7]};
 		}
-	}
+	} // namespace avx512
 	namespace avx
 	{
-		DPackedScalar128 __DistFromPointToCirclePack(DCircle c, DPackedVector256 circles)
+		DPackedScalar128 __DistFromPointToCirclePack(DCircle c,
+													 DPackedVector256 circles)
 		{
 			__m256d dabloopoint = _mm256_set_pd(c.y, c.x, c.y, c.x);
 			__m256d centralpoints = _mm256_load_pd(&circles[0]);
@@ -112,16 +129,33 @@ namespace math
 
 		template <bool __MAVX = arch::ARCH_INFO::AVX>
 			requires __MAVX
-		DPackedScalar256 DistFromPointToCirclePack(DCircle c, DPackedVector512 circles)
+		DPackedScalar256
+		DistFromPointToCirclePack(DCircle c, DPackedVector512 circles)
 		{
-			DPackedScalar256 res;
-			std::array<double, 2> tmp = __DistFromPointToCirclePack(c, {circles[0], circles[1], circles[2], circles[3]});
-			res[0] = tmp[0];
-			res[1] = tmp[1];
-			tmp = __DistFromPointToCirclePack(c, {circles[4], circles[5], circles[6], circles[7]});
-			res[2] = tmp[0];
-			res[3] = tmp[1];
-			return res;
+			__m256d dabloopoint = _mm256_set_pd(c.y, c.x, c.y, c.x);
+			{
+				__m256d centralpoints = _mm256_load_pd(&circles[0]);
+				centralpoints = _mm256_sub_pd(centralpoints, dabloopoint);
+				centralpoints = _mm256_mul_pd(centralpoints, centralpoints); // по квадратам
+				__m256d nuli = _mm256_set_pd(0, 0, 0, 0);
+				centralpoints = _mm256_hadd_pd(centralpoints, nuli); // 2 square distances
+				__m256d res = _mm256_set_pd(0, c.r, 0, c.r);
+				centralpoints = _mm256_sqrt_pd(centralpoints);
+				centralpoints = _mm256_sub_pd(centralpoints, res);
+				_mm256_storeu_pd(&circles[0], centralpoints);
+			}
+			{
+				__m256d centralpoints = _mm256_load_pd(&circles[4]);
+				centralpoints = _mm256_sub_pd(centralpoints, dabloopoint);
+				centralpoints = _mm256_mul_pd(centralpoints, centralpoints); // по квадратам
+				__m256d nuli = _mm256_set_pd(0, 0, 0, 0);
+				centralpoints = _mm256_hadd_pd(centralpoints, nuli); // 2 square distances
+				__m256d res = _mm256_set_pd(0, c.r, 0, c.r);
+				centralpoints = _mm256_sqrt_pd(centralpoints);
+				centralpoints = _mm256_sub_pd(centralpoints, res);
+				_mm256_storeu_pd(&circles[4], centralpoints);
+			}
+			return {circles[0], circles[2], circles[4], circles[6]};
 		}
 
 		FPackedScalar128 DistancesToCircle(FCircle c, FPackedVector256 points)
@@ -152,12 +186,13 @@ namespace math
 			_mm256_store_ps(points.data(), pts);
 			return {points[0], points[2], points[4], points[6]};
 		}
-	}
+	} // namespace avx
 	namespace sse3
 	{
 		template <bool __MAVX = arch::ARCH_INFO::SSE2 && arch::ARCH_INFO::SSE3>
 			requires __MAVX
-		DPackedScalar256 DistFromPointToCirclePack(DCircle c, DPackedVector512 circles)
+		DPackedScalar256
+		DistFromPointToCirclePack(DCircle c, DPackedVector512 circles)
 		{
 			DPackedScalar256 res;
 			__m128d xy = _mm_set_pd(c.y, c.x);
@@ -181,10 +216,10 @@ namespace math
 			circla = _mm_hadd_pd(circla, circlb); // SSE3
 			circla = _mm_sqrt_pd(circla);
 			circla = _mm_sub_pd(circla, rr);
-			_mm_store_pd(&res[4], circla);
+			_mm_store_pd(&res[0], circla);
 			return res;
 		}
-	}
+	} // namespace sse3
 
 	template <size_t AVXFlags = arch::ARCH_INFO::SIMDFlag>
 	struct __Releaze
@@ -214,5 +249,6 @@ namespace math
 
 	using ReleazeInfo = __Releaze<>;
 
-	constexpr const __DFPTCP_ptr DistFromPointToCirclePack = ReleazeInfo::TargetDistanceFunction();
-}
+	constexpr const __DFPTCP_ptr DistFromPointToCirclePack =
+		ReleazeInfo::TargetDistanceFunction();
+} // namespace math
